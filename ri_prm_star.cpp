@@ -141,10 +141,10 @@ public:
     // Generate a sample in the valid part of the state space
     bool sample(ob::State *state) override
     {
-        // Sample x ∈ [-5,5]^d
+        // Sample x within the workspace [0, 10]^d
         Eigen::VectorXd x(d);
         for (int i = 0; i < d; ++i) {
-            x(i) = rng_.uniformReal(-5.0, 5.0);
+            x(i) = rng_.uniformReal(0.0, 10.0);
         }
 
         // Trace Range Specification
@@ -237,6 +237,11 @@ public:
 
         // Total cost D = D_travel + alpha * D_info
         double D_total = D_travel + alpha * D_info;
+
+        // PRM* requires nonnegative edge weights.
+        if (!std::isfinite(D_total) || D_total < 0.0) {
+            D_total = 0.0;
+        }
 
         return ob::Cost(D_total);
     }
@@ -601,6 +606,14 @@ public:
     // Function to check if an ellipsoid characterized by (x, P) is collision-free
     bool isEllipsoidCollisionFree(const Eigen::VectorXd &x, const Eigen::MatrixXd &P) const
     {
+        for (const auto &obs : obstacles_)
+        {
+            if (isPointInPolygon(x, obs.vertices))
+            {
+                return false;
+            }
+        }
+
         // Compute covariance matrix Σ = P^{-1}
         Eigen::MatrixXd Sigma = P.inverse();
 
@@ -775,10 +788,10 @@ int main()
 
     // Set the bounds of the space
     ob::RealVectorBounds bounds(net_vector_size);
-    // Set bounds for x ∈ [-5, 5]^d
+    // Set bounds for x ∈ [0, 10]^d
     for (int i = 0; i < d; ++i) {
-        bounds.setLow(i, -5.0);
-        bounds.setHigh(i, 5.0);
+        bounds.setLow(i, 0.0);
+        bounds.setHigh(i, 10.0);
     }
     // Adjusted bounds for P's elements
     for (size_t i = d; i < net_vector_size; ++i) {
@@ -790,25 +803,28 @@ int main()
     // Create a SimpleSetup object
     og::SimpleSetup ss(space);
 
-    // Random number generator for obstacle generation
-    std::random_device rd;
-    std::mt19937 gen(rd());
-
-    // Generate obstacles
-    int m1 = 3; // Number of triangles
-    int m2 = 3; // Number of squares
-    int m3 = 3; // Number of pentagons
-
     std::vector<Obstacle> obstacles;
 
-    double workspace_min = -5.0;
-    double workspace_max = 5.0;
+    // Define a 1 m thick wall with a gap between y = 4.5 and y = 6.5.
+    Obstacle lower_wall;
+    lower_wall.type = "square";
+    lower_wall.vertices = {
+        Eigen::Vector2d(4.0, 0.0),
+        Eigen::Vector2d(5.0, 0.0),
+        Eigen::Vector2d(5.0, 4.5),
+        Eigen::Vector2d(4.0, 4.5)
+    };
+    obstacles.push_back(lower_wall);
 
-    // Set obstacle size range
-    double min_obstacle_size = 0.5; // Minimum size of obstacles
-    double max_obstacle_size = 1.5; // Maximum size of obstacles
-
-    generateRandomObstacles(m1, m2, m3, obstacles, workspace_min, workspace_max, min_obstacle_size, max_obstacle_size, gen);
+    Obstacle upper_wall;
+    upper_wall.type = "square";
+    upper_wall.vertices = {
+        Eigen::Vector2d(4.0, 6.5),
+        Eigen::Vector2d(5.0, 6.5),
+        Eigen::Vector2d(5.0, 10.0),
+        Eigen::Vector2d(4.0, 10.0)
+    };
+    obstacles.push_back(upper_wall);
 
     // Save obstacles to CSV file
     std::string obstacles_filename = "obstacles_prm.csv";
@@ -832,50 +848,29 @@ int main()
     ob::ScopedState<> start(space);
     ob::ScopedState<> goal(space);
 
-    // Sample valid start and goal states using the sampler and ensure they are valid
-    auto sampler = ss.getSpaceInformation()->allocValidStateSampler();
+    auto *startState = start->as<ob::RealVectorStateSpace::StateType>();
+    auto *goalState = goal->as<ob::RealVectorStateSpace::StateType>();
 
-    bool valid_start_found = false;
-    bool valid_goal_found = false;
+    // Initial mean xinit = [1, 1]
+    startState->values[0] = 1.0;
+    startState->values[1] = 1.0;
+    startState->values[2] = 1.0;
+    startState->values[3] = 0.0;
+    startState->values[4] = 1.0;
 
-    // Sample start state
-    int max_attempts = 1000;
-    int attempts = 0;
-    while (!valid_start_found && attempts < max_attempts)
-    {
-        if (!sampler->sample(start.get())) {
-            std::cerr << "Failed to sample a valid start state." << std::endl;
-            return 1;
-        }
-        if (ss.getStateValidityChecker()->isValid(start.get()))
-        {
-            valid_start_found = true;
-        }
-        attempts++;
-    }
-    if (!valid_start_found)
-    {
-        std::cerr << "Unable to find a valid start state after " << max_attempts << " attempts." << std::endl;
+    // Goal mean xgoal = [9, 1]
+    goalState->values[0] = 9.0;
+    goalState->values[1] = 1.0;
+    goalState->values[2] = 1.0;
+    goalState->values[3] = 0.0;
+    goalState->values[4] = 1.0;
+
+    if (!ss.getStateValidityChecker()->isValid(start.get())) {
+        std::cerr << "Start state is invalid for the configured environment." << std::endl;
         return 1;
     }
-
-    // Sample goal state
-    attempts = 0;
-    while (!valid_goal_found && attempts < max_attempts)
-    {
-        if (!sampler->sample(goal.get())) {
-            std::cerr << "Failed to sample a valid goal state." << std::endl;
-            return 1;
-        }
-        if (ss.getStateValidityChecker()->isValid(goal.get()))
-        {
-            valid_goal_found = true;
-        }
-        attempts++;
-    }
-    if (!valid_goal_found)
-    {
-        std::cerr << "Unable to find a valid goal state after " << max_attempts << " attempts." << std::endl;
+    if (!ss.getStateValidityChecker()->isValid(goal.get())) {
+        std::cerr << "Goal state is invalid for the configured environment." << std::endl;
         return 1;
     }
 
@@ -890,7 +885,7 @@ int main()
     ss.setPlanner(planner);
 
     // Attempt to solve the problem within a given time (seconds)
-    ob::PlannerStatus solved = ss.solve(20.0);
+    ob::PlannerStatus solved = ss.solve(300.0);
 
     if (solved)
     {

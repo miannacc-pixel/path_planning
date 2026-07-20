@@ -457,8 +457,8 @@ def plot_path(path, ax):
             print(f"Non-finite ellipse dimensions at index {idx}, skipping.")
             continue
 
-        ellip = patches.Ellipse((x, y), width, height, angle,
-                                edgecolor='red', facecolor='none', linestyle='--', alpha=0.5)
+        ellip = patches.Ellipse((x, y), width, height, angle=angle,
+                    edgecolor='red', facecolor='none', linestyle='--', alpha=0.5)
         ax.add_patch(ellip)
 
 def main():

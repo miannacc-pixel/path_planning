@@ -153,8 +153,7 @@ Place the C++ and Python files in this directory.
 
 ```bash
 g++ -std=c++11 ig_rrt_star.cpp -o rrt_star \
-  -I/usr/local/include/ompl-2.0 \
-  -I/usr/local/include/eigen3 \
+    -I/usr/include/eigen3 \
     -I/usr/include/boost \
     $(pkg-config --cflags --libs ompl) \
     -lboost_system \
@@ -174,8 +173,7 @@ g++ -std=c++11 ig_rrt_star.cpp -o rrt_star \
 
 ```bash
 g++ -std=c++11 ri_prm_star.cpp -o prm_star \
-  -I/usr/local/include/ompl-2.0 \
-  -I/usr/local/include/eigen3 \
+    -I/usr/include/eigen3 \
     -I/usr/include/boost \
     $(pkg-config --cflags --libs ompl) \
     -lboost_system \
@@ -457,8 +455,8 @@ def plot_path(path, ax):
             print(f"Non-finite ellipse dimensions at index {idx}, skipping.")
             continue
 
-        ellip = patches.Ellipse((x, y), width, height, angle=angle,
-                    edgecolor='red', facecolor='none', linestyle='--', alpha=0.5)
+        ellip = patches.Ellipse((x, y), width, height, angle,
+                                edgecolor='red', facecolor='none', linestyle='--', alpha=0.5)
         ax.add_patch(ellip)
 
 def main():

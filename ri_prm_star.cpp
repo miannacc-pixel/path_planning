@@ -29,6 +29,33 @@
 namespace ob = ompl::base;
 namespace og = ompl::geometric;
 
+namespace {
+constexpr double kMinEigenvalue = 1e-9;
+
+Eigen::MatrixXd projectToPSD(const Eigen::MatrixXd &M, double min_eig = kMinEigenvalue)
+{
+    Eigen::MatrixXd sym = 0.5 * (M + M.transpose());
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(sym);
+    if (es.info() != Eigen::Success)
+    {
+        return min_eig * Eigen::MatrixXd::Identity(M.rows(), M.cols());
+    }
+
+    Eigen::VectorXd evals = es.eigenvalues().cwiseMax(min_eig);
+    return es.eigenvectors() * evals.asDiagonal() * es.eigenvectors().transpose();
+}
+
+double logDetPSD(const Eigen::MatrixXd &M)
+{
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(projectToPSD(M));
+    if (es.info() != Eigen::Success)
+    {
+        return std::log(kMinEigenvalue) * static_cast<double>(M.rows());
+    }
+    return es.eigenvalues().array().log().sum();
+}
+} // namespace
+
 // Function declarations
 void randpdm(int dim, const std::vector<double>& trace, int num, const std::string& type,
              const std::string& method, std::vector<Eigen::MatrixXd>& A);
@@ -141,50 +168,59 @@ public:
     // Generate a sample in the valid part of the state space
     bool sample(ob::State *state) override
     {
-        // Sample x within the workspace [0, 10]^d
-        Eigen::VectorXd x(d);
-        for (int i = 0; i < d; ++i) {
-            x(i) = rng_.uniformReal(0.0, 10.0);
-        }
+        // Try multiple times to guarantee returning only valid states.
+        for (int attempt = 0; attempt < 200; ++attempt)
+        {
+            // Sample x within the workspace [0, 10]^d
+            Eigen::VectorXd x(d);
+            for (int i = 0; i < d; ++i) {
+                x(i) = rng_.uniformReal(0.0, 10.0);
+            }
 
-        // Trace Range Specification
-        std::vector<double> trace = {0.5, 1.5}; // Modify these values to set the trace range
+            // Trace Range Specification
+            std::vector<double> trace = {0.5, 1.5};
 
-        int num = 1; // Number of matrices to generate
-        std::string type = "real"; // "real" or "complex"
-        std::string method = "rejection"; // "rejection" or "betadistr"
-        std::vector<Eigen::MatrixXd> A_list; // Output matrices
+            int num = 1;
+            std::string type = "real";
+            std::string method = "rejection";
+            std::vector<Eigen::MatrixXd> A_list;
 
-        randpdm(d, trace, num, type, method, A_list);
+            randpdm(d, trace, num, type, method, A_list);
 
-        // Extract the generated positive definite matrix
-        Eigen::MatrixXd A = A_list[0];
+            // Extract and regularize to enforce SPD numerically.
+            Eigen::MatrixXd A = projectToPSD(A_list[0]);
 
-        // Vectorize A by extracting upper triangular elements including the diagonal
-        std::vector<double> A_vectorized;
-        for (int i = 0; i < d; ++i) {
-            for (int j = i; j < d; ++j) { // j >= i
-                A_vectorized.push_back(A(i, j));
+            // Vectorize A by extracting upper triangular elements including the diagonal
+            std::vector<double> A_vectorized;
+            for (int i = 0; i < d; ++i) {
+                for (int j = i; j < d; ++j) {
+                    A_vectorized.push_back(A(i, j));
+                }
+            }
+
+            // Create net vector: [x; vectorized A]
+            std::vector<double> net_vector;
+            net_vector.reserve(x.size() + A_vectorized.size());
+
+            // Append x to net_vector
+            net_vector.insert(net_vector.end(), x.data(), x.data() + x.size());
+
+            // Append vectorized A to net_vector
+            net_vector.insert(net_vector.end(), A_vectorized.begin(), A_vectorized.end());
+
+            // Assign net_vector to the state
+            auto *rv_state = state->as<ob::RealVectorStateSpace::StateType>();
+            for (size_t i = 0; i < net_vector.size(); ++i) {
+                rv_state->values[i] = net_vector[i];
+            }
+
+            // Only return if this sampled state passes all validity checks.
+            if (si_->isValid(state)) {
+                return true;
             }
         }
 
-        // Create net vector: [x; vectorized A]
-        std::vector<double> net_vector;
-        net_vector.reserve(x.size() + A_vectorized.size());
-
-        // Append x to net_vector
-        net_vector.insert(net_vector.end(), x.data(), x.data() + x.size());
-
-        // Append vectorized A to net_vector
-        net_vector.insert(net_vector.end(), A_vectorized.begin(), A_vectorized.end());
-
-        // Assign net_vector to the state
-        auto *rv_state = state->as<ob::RealVectorStateSpace::StateType>();
-        for (size_t i = 0; i < net_vector.size(); ++i) {
-            rv_state->values[i] = net_vector[i];
-        }
-
-        return true;
+        return false;
     }
 
     // Implement the sampleNear function
@@ -280,30 +316,39 @@ private:
                 ++idx;
             }
         }
+
+        // Keep matrix numerically SPD for downstream inverse/log-det operations.
+        P = projectToPSD(P);
     }
 
     // Helper function to compute D_info using the analytical solution
     double computeDInfo(const Eigen::MatrixXd &P_hat, const Eigen::MatrixXd &P_k1) const
     {
-        // Compute the eigenvalues of P_{k+1}^{-1} * P_hat
-        Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(P_k1.inverse() * P_hat);
+        Eigen::MatrixXd P_hat_psd = projectToPSD(P_hat);
+        Eigen::MatrixXd P_k1_psd = projectToPSD(P_k1);
+
+        // Compute eigenvalues of a symmetrized, numerically stable product.
+        Eigen::MatrixXd ratio = P_k1_psd.ldlt().solve(P_hat_psd);
+        ratio = 0.5 * (ratio + ratio.transpose());
+        Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(ratio);
+        if (es.info() != Eigen::Success) {
+            return 0.0;
+        }
         Eigen::VectorXd sigma = es.eigenvalues();
 
         // Ensure eigenvalues are positive
         for (int i = 0; i < sigma.size(); ++i) {
-            if (sigma(i) <= 0) {
-                sigma(i) = 1e-6; // Small positive value
-            }
+            sigma(i) = std::max(sigma(i), kMinEigenvalue);
         }
 
         // Compute S^* = diag(min{1, sigma_i})
         Eigen::VectorXd S_star = sigma.unaryExpr([](double val) { return std::min(1.0, val); });
 
         // Compute log-det of P_hat and Q^*_{k+1}
-        double log_det_P_hat = std::log((P_hat).determinant());
+        double log_det_P_hat = logDetPSD(P_hat_psd);
 
         // Compute log-det of Q^*_{k+1}
-        double log_det_Q_star = std::log(P_k1.determinant()) + S_star.array().log().sum();
+        double log_det_Q_star = logDetPSD(P_k1_psd) + S_star.array().log().sum();
 
         double D_info = 0.5 * (log_det_P_hat - log_det_Q_star);
 
@@ -615,13 +660,16 @@ public:
         }
 
         // Compute covariance matrix Σ = P^{-1}
-        Eigen::MatrixXd Sigma = P.inverse();
+        Eigen::MatrixXd Sigma = projectToPSD(P).inverse();
 
         // Ensure Sigma is symmetric
         Sigma = (Sigma + Sigma.transpose()) / 2.0;
 
         // Compute eigenvalues and eigenvectors of Sigma
         Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(Sigma);
+        if (es.info() != Eigen::Success) {
+            return false;
+        }
         Eigen::VectorXd eigenvalues = es.eigenvalues();
         Eigen::MatrixXd eigenvectors = es.eigenvectors();
 
@@ -692,6 +740,8 @@ public:
                 ++idx;
             }
         }
+
+        P = projectToPSD(P);
     }
 
     // Make extractState public to allow access from MyMotionValidator
@@ -936,8 +986,14 @@ int main()
                 }
             }
 
+            // Export covariance matrix Sigma = P^{-1} as the plotting script expects.
+            P = projectToPSD(P);
+            Eigen::MatrixXd Sigma = P.inverse();
+            Sigma = 0.5 * (Sigma + Sigma.transpose());
+            Sigma = projectToPSD(Sigma);
+
             // Write data to CSV file
-            pathFile << x(0) << "," << x(1) << "," << P(0,0) << "," << P(0,1) << "," << P(1,1) << "\n";
+            pathFile << x(0) << "," << x(1) << "," << Sigma(0,0) << "," << Sigma(0,1) << "," << Sigma(1,1) << "\n";
         }
 
         pathFile.close();

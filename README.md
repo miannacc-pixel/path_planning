@@ -153,7 +153,8 @@ Place the C++ and Python files in this directory.
 
 ```bash
 g++ -std=c++11 ig_rrt_star.cpp -o rrt_star \
-    -I/usr/include/eigen3 \
+  -I/usr/local/include/ompl-2.0 \
+  -I/usr/local/include/eigen3 \
     -I/usr/include/boost \
     $(pkg-config --cflags --libs ompl) \
     -lboost_system \
@@ -173,7 +174,8 @@ g++ -std=c++11 ig_rrt_star.cpp -o rrt_star \
 
 ```bash
 g++ -std=c++11 ri_prm_star.cpp -o prm_star \
-    -I/usr/include/eigen3 \
+  -I/usr/local/include/ompl-2.0 \
+  -I/usr/local/include/eigen3 \
     -I/usr/include/boost \
     $(pkg-config --cflags --libs ompl) \
     -lboost_system \

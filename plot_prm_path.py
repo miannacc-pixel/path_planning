@@ -56,18 +56,14 @@ def plot_path(path, ax):
         # Ensure covariance matrix is symmetric
         cov = (cov + cov.T) / 2
 
-        # Eigenvalues and eigenvectors for the covariance matrix
+        # Project the covariance onto the PSD cone before plotting.
+        # The exported path can contain indefinite matrices, but plotting
+        # only needs a valid ellipse shape.
         eigenvalues, eigenvectors = np.linalg.eigh(cov)
-
-        # Handle negative eigenvalues
-        if np.any(eigenvalues < 0):
-            print(f"Negative eigenvalues at index {idx}, position ({x}, {y}): {eigenvalues}")
-            # Adjust small negative eigenvalues
-            eigenvalues[eigenvalues < 0] = 0.0
-            # If eigenvalues are significantly negative, skip plotting
-            if np.any(eigenvalues < -1e-6):
-                print(f"Significant negative eigenvalues encountered, skipping ellipsoid at index {idx}.")
-                continue
+        min_eigenvalue = float(np.min(eigenvalues))
+        if min_eigenvalue < 0.0:
+            cov = cov + (-min_eigenvalue + 1e-9) * np.eye(2)
+            eigenvalues, eigenvectors = np.linalg.eigh(cov)
 
         # Proceed with plotting
         order = eigenvalues.argsort()[::-1]

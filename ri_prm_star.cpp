@@ -618,6 +618,37 @@ void rndtrace(int dim, double lb, double ub, int num, const std::string& type,
     }
 }
 
+void initializeStateWithSampledCovariance(ob::State *state, const Eigen::VectorXd &x, int d,
+                                          const ob::SpaceInformationPtr &si)
+{
+    auto *rv_state = state->as<ob::RealVectorStateSpace::StateType>();
+
+    for (int i = 0; i < d; ++i) {
+        rv_state->values[i] = x(i);
+    }
+
+    std::vector<double> trace = {0.5, 1.5};
+    std::string type = "real";
+    std::string method = "rejection";
+
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        std::vector<Eigen::MatrixXd> A_list;
+        randpdm(d, trace, 1, type, method, A_list);
+        Eigen::MatrixXd P = projectToPSD(A_list[0]);
+
+        size_t idx = d;
+        for (int i = 0; i < d; ++i) {
+            for (int j = i; j < d; ++j) {
+                rv_state->values[idx++] = P(i, j);
+            }
+        }
+
+        if (si->isValid(state)) {
+            return;
+        }
+    }
+}
+
 // State validity checker with collision checking
 class MyStateValidityChecker : public ob::StateValidityChecker
 {
@@ -901,19 +932,17 @@ int main()
     auto *startState = start->as<ob::RealVectorStateSpace::StateType>();
     auto *goalState = goal->as<ob::RealVectorStateSpace::StateType>();
 
-    // Initial mean xinit = [1, 1]
+    // Initialize the start state with an explicit covariance P.
     startState->values[0] = 1.0;
     startState->values[1] = 1.0;
     startState->values[2] = 1.0;
     startState->values[3] = 0.0;
     startState->values[4] = 1.0;
 
-    // Goal mean xgoal = [9, 1]
-    goalState->values[0] = 9.0;
-    goalState->values[1] = 1.0;
-    goalState->values[2] = 1.0;
-    goalState->values[3] = 0.0;
-    goalState->values[4] = 1.0;
+    // Initialize the goal state with a sampled covariance, matching how other states are represented.
+    Eigen::VectorXd goal_x(d);
+    goal_x << 9.0, 1.0;
+    initializeStateWithSampledCovariance(goal.get(), goal_x, d, ss.getSpaceInformation());
 
     if (!ss.getStateValidityChecker()->isValid(start.get())) {
         std::cerr << "Start state is invalid for the configured environment." << std::endl;

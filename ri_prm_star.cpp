@@ -168,7 +168,6 @@ public:
     // Generate a sample in the valid part of the state space
     bool sample(ob::State *state) override
     {
-<<<<<<< HEAD
         // Try multiple times to guarantee returning only valid states.
         for (int attempt = 0; attempt < 200; ++attempt)
         {
@@ -177,13 +176,6 @@ public:
             for (int i = 0; i < d; ++i) {
                 x(i) = rng_.uniformReal(0.0, 10.0);
             }
-=======
-        // Sample x within the workspace [0, 10]^d
-        Eigen::VectorXd x(d);
-        for (int i = 0; i < d; ++i) {
-            x(i) = rng_.uniformReal(0.0, 10.0);
-        }
->>>>>>> a7c8a3ec01a87636fbb0fefe655004873b83cfee
 
             // Trace Range Specification
             std::vector<double> trace = {0.5, 1.5};

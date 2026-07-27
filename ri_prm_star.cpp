@@ -7,6 +7,7 @@
 #include <ompl/base/MotionValidator.h>
 #include <ompl/base/spaces/RealVectorStateSpace.h>
 #include <ompl/base/OptimizationObjective.h>
+#include <ompl/base/PlannerTerminationCondition.h>
 #include <ompl/geometric/SimpleSetup.h>
 #include <ompl/geometric/planners/prm/PRMstar.h>
 #include <ompl/util/RandomNumbers.h>
@@ -963,8 +964,21 @@ int main()
     auto planner = std::make_shared<og::PRMstar>(ss.getSpaceInformation());
     ss.setPlanner(planner);
 
-    // Attempt to solve the problem within a given time (seconds)
-    ob::PlannerStatus solved = ss.solve(300.0);
+    // Attempt to solve the problem using a maximum number of roadmap milestones
+    // (nodes) instead of a fixed wall-clock time limit.
+    const unsigned int max_nodes = 2000;
+    const unsigned int progress_interval = 1;
+    unsigned int last_reported_nodes = 0;
+    ob::PlannerTerminationCondition terminationCondition(
+        [planner, max_nodes, progress_interval, &last_reported_nodes]() mutable {
+            const unsigned int current_nodes = planner->milestoneCount();
+            if (current_nodes >= last_reported_nodes + progress_interval || current_nodes >= max_nodes) {
+                std::cout << "Roadmap nodes: " << current_nodes << "/" << max_nodes << std::endl;
+                last_reported_nodes = current_nodes;
+            }
+            return current_nodes >= max_nodes;
+        });
+    ob::PlannerStatus solved = ss.solve(terminationCondition);
 
     if (solved)
     {

@@ -966,7 +966,7 @@ int main()
 
     // Attempt to solve the problem using a maximum number of roadmap milestones
     // (nodes) instead of a fixed wall-clock time limit.
-    const unsigned int max_nodes = 2000;
+    const unsigned int max_nodes = 20000;
     const unsigned int progress_interval = 1;
     unsigned int last_reported_nodes = 0;
     ob::PlannerTerminationCondition terminationCondition(

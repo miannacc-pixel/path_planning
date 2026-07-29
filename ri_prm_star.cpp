@@ -179,7 +179,7 @@ public:
             }
 
             // Trace Range Specification
-            std::vector<double> trace = {1e-4,  1e-3};
+            std::vector<double> trace = {1e-9,  1e-3};
 
             int num = 1;
             std::string type = "real";
@@ -628,7 +628,7 @@ void initializeStateWithSampledCovariance(ob::State *state, const Eigen::VectorX
         rv_state->values[i] = x(i);
     }
 
-    std::vector<double> trace = {1e-4, 1e-3};
+    std::vector<double> trace = {1e-9, 1e-3};
     std::string type = "real";
     std::string method = "rejection";
 

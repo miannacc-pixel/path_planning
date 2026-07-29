@@ -877,8 +877,8 @@ int main()
     }
     // Adjusted bounds for P's elements
     for (size_t i = d; i < net_vector_size; ++i) {
-        bounds.setLow(i, -10.0);  // Allow negative values
-        bounds.setHigh(i, 10.0);  // Arbitrary upper bound
+        bounds.setLow(i, -1e-3);  // Allow negative values
+        bounds.setHigh(i, 1e-3);  // Arbitrary upper bound
     }
     space->setBounds(bounds);
 

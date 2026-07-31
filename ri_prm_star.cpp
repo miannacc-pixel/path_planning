@@ -172,10 +172,10 @@ public:
         // Try multiple times to guarantee returning only valid states.
         for (int attempt = 0; attempt < 200; ++attempt)
         {
-            // Sample x within the workspace [0, 10]^d
+            // Sample x within the workspace [0, 1]^d
             Eigen::VectorXd x(d);
             for (int i = 0; i < d; ++i) {
-                x(i) = rng_.uniformReal(0.0, 10.0);
+                x(i) = rng_.uniformReal(0.0, 1.0);
             }
 
             // Trace Range Specification
@@ -870,15 +870,15 @@ int main()
 
     // Set the bounds of the space
     ob::RealVectorBounds bounds(net_vector_size);
-    // Set bounds for x ∈ [0, 10]^d
+    // Set bounds for x ∈ [0, 1]^d
     for (int i = 0; i < d; ++i) {
         bounds.setLow(i, 0.0);
-        bounds.setHigh(i, 10.0);
+        bounds.setHigh(i, 1.0);
     }
     // Adjusted bounds for P's elements
     for (size_t i = d; i < net_vector_size; ++i) {
-        bounds.setLow(i, -1e-3);  // Allow negative values
-        bounds.setHigh(i, 1e-3);  // Arbitrary upper bound
+        bounds.setLow(i, -10.0);  // Allow negative values
+        bounds.setHigh(i, 10.0);  // Arbitrary upper bound
     }
     space->setBounds(bounds);
 
@@ -891,20 +891,20 @@ int main()
     Obstacle lower_wall;
     lower_wall.type = "square";
     lower_wall.vertices = {
-        Eigen::Vector2d(4.0, 0.0),
-        Eigen::Vector2d(5.0, 0.0),
-        Eigen::Vector2d(5.0, 4.5),
-        Eigen::Vector2d(4.0, 4.5)
+        Eigen::Vector2d(0.4, 0.0),
+        Eigen::Vector2d(0.5, 0.0),
+        Eigen::Vector2d(0.5, 0.45),
+        Eigen::Vector2d(0.4, 0.45)
     };
     obstacles.push_back(lower_wall);
 
     Obstacle upper_wall;
     upper_wall.type = "square";
     upper_wall.vertices = {
-        Eigen::Vector2d(4.0, 6.5),
-        Eigen::Vector2d(5.0, 6.5),
-        Eigen::Vector2d(5.0, 10.0),
-        Eigen::Vector2d(4.0, 10.0)
+        Eigen::Vector2d(0.4, 0.65),
+        Eigen::Vector2d(0.5, 0.65),
+        Eigen::Vector2d(0.5, 1.0),
+        Eigen::Vector2d(0.4, 1.0)
     };
     obstacles.push_back(upper_wall);
 
@@ -933,17 +933,33 @@ int main()
     auto *startState = start->as<ob::RealVectorStateSpace::StateType>();
     auto *goalState = goal->as<ob::RealVectorStateSpace::StateType>();
 
-    // Initialize the start state with an explicit covariance P.
-    startState->values[0] = 1.0;
-    startState->values[1] = 1.0;
-    startState->values[2] = 1.0;
-    startState->values[3] = 0.0;
-    startState->values[4] = 1.0;
+    // Initialize the start and goal states with explicit covariance matrices.
+    Eigen::MatrixXd Pinit = 1e-4 * Eigen::MatrixXd::Identity(d, d);
+    Eigen::MatrixXd Pgoal = 1e-3 * Eigen::MatrixXd::Identity(d, d);
 
-    // Initialize the goal state with a sampled covariance, matching how other states are represented.
+    Eigen::VectorXd start_x(d);
+    start_x << 0.1, 0.1;
+    for (int i = 0; i < d; ++i) {
+        startState->values[i] = start_x(i);
+    }
+    size_t state_idx = d;
+    for (int i = 0; i < d; ++i) {
+        for (int j = i; j < d; ++j) {
+            startState->values[state_idx++] = Pinit(i, j);
+        }
+    }
+
     Eigen::VectorXd goal_x(d);
-    goal_x << 9.0, 1.0;
-    initializeStateWithSampledCovariance(goal.get(), goal_x, d, ss.getSpaceInformation());
+    goal_x << 0.9, 0.1;
+    for (int i = 0; i < d; ++i) {
+        goalState->values[i] = goal_x(i);
+    }
+    state_idx = d;
+    for (int i = 0; i < d; ++i) {
+        for (int j = i; j < d; ++j) {
+            goalState->values[state_idx++] = Pgoal(i, j);
+        }
+    }
 
     if (!ss.getStateValidityChecker()->isValid(start.get())) {
         std::cerr << "Start state is invalid for the configured environment." << std::endl;
@@ -966,7 +982,7 @@ int main()
 
     // Attempt to solve the problem using a maximum number of roadmap milestones
     // (nodes) instead of a fixed wall-clock time limit.
-    const unsigned int max_nodes = 20000;
+    const unsigned int max_nodes = 2000;
     const unsigned int progress_interval = 1;
     unsigned int last_reported_nodes = 0;
     ob::PlannerTerminationCondition terminationCondition(
@@ -1029,14 +1045,11 @@ int main()
                 }
             }
 
-            // Export covariance matrix Sigma = P^{-1} as the plotting script expects.
+            // Export the node covariance matrix directly for plotting.
             P = projectToPSD(P);
-            Eigen::MatrixXd Sigma = P.inverse();
-            Sigma = 0.5 * (Sigma + Sigma.transpose());
-            Sigma = projectToPSD(Sigma);
 
             // Write data to CSV file
-            pathFile << x(0) << "," << x(1) << "," << Sigma(0,0) << "," << Sigma(0,1) << "," << Sigma(1,1) << "\n";
+            pathFile << x(0) << "," << x(1) << "," << P(0,0) << "," << P(0,1) << "," << P(1,1) << "\n";
         }
 
         pathFile.close();

@@ -6,9 +6,6 @@ import matplotlib.patches as patches
 import numpy as np
 import os
 
-CONFIDENCE_LEVEL = 0.8
-CHI_SQUARE_VAL = -2.0 * np.log(1.0 - CONFIDENCE_LEVEL)  # chi2inv(CONFIDENCE_LEVEL, 2)
-
 def read_obstacles(filename):
     obstacles = []
     with open(filename, 'r') as file:
@@ -72,8 +69,7 @@ def plot_path(path, ax):
         order = eigenvalues.argsort()[::-1]
         eigenvalues, eigenvectors = eigenvalues[order], eigenvectors[:, order]
         angle = np.degrees(np.arctan2(*eigenvectors[:,0][::-1]))
-        confidence_scale = np.sqrt(CHI_SQUARE_VAL)
-        width, height = 2 * confidence_scale * np.sqrt(eigenvalues)
+        width, height = 2 * np.sqrt(eigenvalues)  # 1-sigma ellipse
 
         # Check for NaN or infinite values
         if not np.isfinite(width) or not np.isfinite(height):
@@ -98,8 +94,8 @@ def main():
     plot_obstacles(obstacles, ax)
     plot_path(path, ax)
 
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 10)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_title('PRM* Path with Uncertainty Ellipsoids')

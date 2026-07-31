@@ -691,8 +691,8 @@ public:
             }
         }
 
-        // Compute covariance matrix Σ = P^{-1}
-        Eigen::MatrixXd Sigma = projectToPSD(P).inverse();
+        // P is stored as the covariance matrix. Use it directly (enforce PSD).
+        Eigen::MatrixXd Sigma = projectToPSD(P);
 
         // Ensure Sigma is symmetric
         Sigma = (Sigma + Sigma.transpose()) / 2.0;

@@ -6,6 +6,10 @@ import matplotlib.patches as patches
 import numpy as np
 import os
 
+# Note: The CSV `path_data_prm.csv` stores `P11,P12,P22` as entries of the
+# covariance matrix P for each path node. This script treats those values as
+# covariance (not information) when plotting uncertainty ellipsoids.
+
 CONFIDENCE_LEVEL = 0.8
 CHI_SQUARE_VAL = -2.0 * np.log(1.0 - CONFIDENCE_LEVEL)  # chi2inv(CONFIDENCE_LEVEL, 2)
 
